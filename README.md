@@ -13,6 +13,10 @@ This will show how to use spring-batch framework to run batch process.
 
 Run `mvn spring-boot:run` for a dev server. 
 
+To run job with parameter need to package the project using maven build with goals clean package
+Then run the created jar 
+` java -jar .\batch-service-1.0.0.jar "item=shoes" "run.date=2024-12-25"`
+
 ### Reference Documentation
 For further reference, please consider the following sections:
 
