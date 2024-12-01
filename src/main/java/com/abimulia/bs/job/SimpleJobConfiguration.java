@@ -13,12 +13,16 @@ import java.time.format.DateTimeParseException;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.job.flow.JobExecutionDecider;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.support.JdbcTransactionManager;
+
+import com.abimulia.bs.decider.SimpleDecider;
+
 import org.springframework.batch.core.BatchStatus;
 
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +40,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class SimpleJobConfiguration {
 	
+	@Bean 
+	public JobExecutionDecider simpleDecider() {
+		return new SimpleDecider();
+	}
+	
 	@Bean
 	public Step firstStep(JobRepository jobRepository, JdbcTransactionManager transactionManager) {
 		log.debug("firstStep() jobRepository: "+ jobRepository + " transactionManager: "+transactionManager);
@@ -46,7 +55,7 @@ public class SimpleJobConfiguration {
 				LocalDate date = LocalDate.parse(strdate, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 				LocalTime currentTime = LocalTime.now();
 				LocalDateTime dateTime = LocalDateTime.of(date, currentTime);
-				System.out.println(String.format("Simple Batch received %s on %s.",item,dateTime));
+				System.out.println(String.format("==Simple Batch received %s on %s.",item,dateTime));
 			} catch (DateTimeParseException e) {
 				System.err.println("Failed to run job ["+e.getMessage()+"]");
 			}
@@ -57,14 +66,14 @@ public class SimpleJobConfiguration {
 	@Bean
 	public Step secondStep(JobRepository jobRepository, JdbcTransactionManager transactionManager) {
 		log.debug("secondStep() jobRepository: "+ jobRepository + " transactionManager: "+transactionManager);
-		boolean GOT_ERROR = true;
+		boolean GOT_ERROR = false;
 		return new StepBuilder("secondStep", jobRepository).tasklet((contribution, chunkContext) -> {
 			if (GOT_ERROR) {
 				throw new RuntimeException("Failed in second step");
 			}
 			String item = chunkContext.getStepContext().getJobParameters().get("item").toString();
 			LocalDateTime dateTime = LocalDateTime.now();
-			System.out.println(String.format("Processing Batch item %s on %s.",item,dateTime));
+			System.out.println(String.format("==Processing Batch item %s on %s.",item,dateTime));
 			return RepeatStatus.FINISHED; 
 		}, transactionManager).build();
 	}
@@ -75,7 +84,7 @@ public class SimpleJobConfiguration {
 		return new StepBuilder("onSecondFailed", jobRepository).tasklet((contribution, chunkContext) -> {
 			String item = chunkContext.getStepContext().getJobParameters().get("item").toString();
 			LocalDateTime dateTime = LocalDateTime.now();
-			System.out.println(String.format("Re-Processing after fixing Batch item %s on %s.",item,dateTime));
+			System.out.println(String.format("==Re-Processing after fixing Batch item %s on %s.",item,dateTime));
 			return RepeatStatus.FINISHED; 
 		}, transactionManager).build();
 	}
@@ -86,20 +95,35 @@ public class SimpleJobConfiguration {
 		return new StepBuilder("thirdStep", jobRepository).tasklet((contribution, chunkContext) -> {
 			String item = chunkContext.getStepContext().getJobParameters().get("item").toString();
 			LocalDateTime dateTime = LocalDateTime.now();
-			System.out.println(String.format("Delivering Batch item %s on %s.",item,dateTime));
+			System.out.println(String.format("==Delivering Batch item %s on %s.",item,dateTime));
 			return RepeatStatus.FINISHED; 
 		}, transactionManager).build();
 	}
 	
 	@Bean
-	public Job simpleJob(JobRepository jobRepository,Step firstStep,Step secondStep,Step thirdStep, Step onSecondFailed) {
+	public Step onthirdFailed(JobRepository jobRepository, JdbcTransactionManager transactionManager) {
+		log.debug("onthirdFailed() jobRepository: "+ jobRepository + " transactionManager: "+transactionManager);
+		return new StepBuilder("onthirdFailed", jobRepository).tasklet((contribution, chunkContext) -> {
+			String item = chunkContext.getStepContext().getJobParameters().get("item").toString();
+			LocalDateTime dateTime = LocalDateTime.now();
+			System.out.println(String.format("==Leaving Batch item %s on %s.",item,dateTime));
+			return RepeatStatus.FINISHED; 
+		}, transactionManager).build();
+	}
+	
+	@Bean
+	public Job simpleJob(JobRepository jobRepository,Step firstStep,Step secondStep,Step thirdStep, Step onSecondFailed, Step onthirdFailed) {
 		log.debug("simpleJob() jobRepository: " + jobRepository +" firstStep: "+  firstStep + " secondStep: "+  secondStep +" thirdStep: "+  thirdStep );
 		return new JobBuilder("simpleJob", jobRepository)
 				.start(firstStep)
-				.next(secondStep).on("FAILED").to(onSecondFailed)
-				.from(secondStep).on("*").to(thirdStep)
+				.next(secondStep)
+				  .on("FAILED").to(onSecondFailed)
+				.from(secondStep)
+				  .on("*").to(simpleDecider())
+				     .on("PRESENT").to(thirdStep)
+				  .from(simpleDecider())
+				     .on("NOT_PRESENT").to(onthirdFailed)    
 				.end()
-//				.next(thirdStep)
 				.build();
 	}
 }
