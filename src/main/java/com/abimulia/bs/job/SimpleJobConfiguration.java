@@ -52,11 +52,36 @@ public class SimpleJobConfiguration {
 			return RepeatStatus.FINISHED; 
 		}, transactionManager).build();
 	}
-
+	
 	@Bean
-	public Job simpleJob(JobRepository jobRepository, Step firstStep) {
-		log.debug("simpleJob() jobRepository: " + jobRepository +" firstStep: "+  firstStep);
-		return new JobBuilder("simpleJob", jobRepository).start(firstStep).build();
+	public Step secondStep(JobRepository jobRepository, JdbcTransactionManager transactionManager) {
+		log.debug("secondStep() jobRepository: "+ jobRepository + " transactionManager: "+transactionManager);
+		return new StepBuilder("secondStep", jobRepository).tasklet((contribution, chunkContext) -> {
+			String item = chunkContext.getStepContext().getJobParameters().get("item").toString();
+			LocalDateTime dateTime = LocalDateTime.now();
+			System.out.println(String.format("Processing Batch item %s on %s.",item,dateTime));
+			return RepeatStatus.FINISHED; 
+		}, transactionManager).build();
 	}
-
+	
+	@Bean
+	public Step thirdStep(JobRepository jobRepository, JdbcTransactionManager transactionManager) {
+		log.debug("thirdStep() jobRepository: "+ jobRepository + " transactionManager: "+transactionManager);
+		return new StepBuilder("thirdStep", jobRepository).tasklet((contribution, chunkContext) -> {
+			String item = chunkContext.getStepContext().getJobParameters().get("item").toString();
+			LocalDateTime dateTime = LocalDateTime.now();
+			System.out.println(String.format("Delivering Batch item %s on %s.",item,dateTime));
+			return RepeatStatus.FINISHED; 
+		}, transactionManager).build();
+	}
+	
+	@Bean
+	public Job simpleJob(JobRepository jobRepository,Step firstStep,Step secondStep,Step thirdStep) {
+		log.debug("simpleJob() jobRepository: " + jobRepository +" firstStep: "+  firstStep + " secondStep: "+  secondStep +" thirdStep: "+  thirdStep );
+		return new JobBuilder("simpleJob", jobRepository)
+				.start(firstStep)
+				.next(secondStep)
+				.next(thirdStep)
+				.build();
+	}
 }
