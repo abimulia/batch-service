@@ -19,6 +19,7 @@ import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.support.JdbcTransactionManager;
+import org.springframework.batch.core.BatchStatus;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -56,10 +57,25 @@ public class SimpleJobConfiguration {
 	@Bean
 	public Step secondStep(JobRepository jobRepository, JdbcTransactionManager transactionManager) {
 		log.debug("secondStep() jobRepository: "+ jobRepository + " transactionManager: "+transactionManager);
+		boolean GOT_ERROR = true;
 		return new StepBuilder("secondStep", jobRepository).tasklet((contribution, chunkContext) -> {
+			if (GOT_ERROR) {
+				throw new RuntimeException("Failed in second step");
+			}
 			String item = chunkContext.getStepContext().getJobParameters().get("item").toString();
 			LocalDateTime dateTime = LocalDateTime.now();
 			System.out.println(String.format("Processing Batch item %s on %s.",item,dateTime));
+			return RepeatStatus.FINISHED; 
+		}, transactionManager).build();
+	}
+	
+	@Bean
+	public Step onSecondFailed(JobRepository jobRepository, JdbcTransactionManager transactionManager) {
+		log.debug("onSecondFailed() jobRepository: "+ jobRepository + " transactionManager: "+transactionManager);
+		return new StepBuilder("onSecondFailed", jobRepository).tasklet((contribution, chunkContext) -> {
+			String item = chunkContext.getStepContext().getJobParameters().get("item").toString();
+			LocalDateTime dateTime = LocalDateTime.now();
+			System.out.println(String.format("Re-Processing after fixing Batch item %s on %s.",item,dateTime));
 			return RepeatStatus.FINISHED; 
 		}, transactionManager).build();
 	}
@@ -76,12 +92,14 @@ public class SimpleJobConfiguration {
 	}
 	
 	@Bean
-	public Job simpleJob(JobRepository jobRepository,Step firstStep,Step secondStep,Step thirdStep) {
+	public Job simpleJob(JobRepository jobRepository,Step firstStep,Step secondStep,Step thirdStep, Step onSecondFailed) {
 		log.debug("simpleJob() jobRepository: " + jobRepository +" firstStep: "+  firstStep + " secondStep: "+  secondStep +" thirdStep: "+  thirdStep );
 		return new JobBuilder("simpleJob", jobRepository)
 				.start(firstStep)
-				.next(secondStep)
-				.next(thirdStep)
+				.next(secondStep).on("FAILED").to(onSecondFailed)
+				.from(secondStep).on("*").to(thirdStep)
+				.end()
+//				.next(thirdStep)
 				.build();
 	}
 }
